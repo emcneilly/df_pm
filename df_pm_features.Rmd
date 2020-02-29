@@ -1,0 +1,110 @@
+---
+title: "df_pm_features"
+author: "Elizabeth McNeilly"
+date: "2/20/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##TEXT DURATION
+```{r}
+
+#Text Duration
+data_dir_duration <- paste0("~/Desktop/output/keyboard")
+data_text_duration_file <- "keyboard_full_wDurations.csv"
+data_text_duration_path <- paste0(data_dir, "/", data_text_duration_file)
+
+
+#Day in the study
+df_text_min_time <- df_text %>% 
+  group_by(participant_id) %>% 
+  dplyr::summarise(min_date = min(timestamp_pst)) %>% 
+  dplyr::ungroup() 
+
+
+#add min date back 
+df_text_w_min <- df_text %>% 
+  left_join(df_text_min_time, by = c("participant_id")) %>% 
+  mutate(day_number = as.numeric(difftime(timestamp_pst, min_date, units = "days")))
+
+#Group by deviceID to count number of messages (by timestamp_pst) per day
+df_text_daily <- df_text_w_min %>% 
+  select(participant_id, day_number, text) %>% 
+  group_by(participant_id, day_number) %>% 
+  dplyr::summarise(text_n = n())
+
+
+#Coverage Plot - data per person per day
+
+ggplot(df_text_daily, aes(x=day_number, y=participant_id, fill=text_n)) +
+        geom_tile()+
+  theme_bw()
+
+
+df_text_duration <- read.csv(data_text_duration_path, stringsAsFactors = FALSE) %>% 
+  mutate(deviceID = device_id)
+
+#Match device ID to participant ID
+deviceID <- read_csv("~/Desktop/log/keyboard/msg_count_log_20200217.csv") %>% 
+  mutate(deviceID = device_id) %>% 
+  select(deviceID, participant_id)
+
+df_text_duration <- df_text_duration %>%
+  left_join(ID_deviceID, by = "deviceID")
+
+
+#Copy text_field to "text" variable
+df_text_duration<- df_text_duration %>% 
+  mutate(text = text_field)
+         
+
+
+#Create Duration by Communication Type - LONG FORMAT
+text_duration_long <- df_text_duration %>%
+  select(participant_id, communication_type, n_messages, n_days, duration_seconds) %>%
+  group_by(participant_id, communication_type) %>% 
+  mutate(text_duration_total_min = (sum(duration_seconds)/60),
+         text_duration_total_min_avg = text_duration_total_min/n_days) %>% 
+  select(-duration_seconds) %>% 
+  unique()
+
+
+
+#Creating Duration by Communication Type - Separate Variables - WIDE FORMAT
+text_duration_app <- text_duration_long %>% 
+  pivot_wider(id_cols=participant_id,values_from=text_duration_total_min_avg,names_from=communication_type,names_prefix="Daily_Avg_Min_") %>% 
+  replace_na(list(Daily_Avg_Min_Email = 0, Daily_Avg_Min_SMS = 0, Daily_Avg_Min_Social_Media = 0))
+  
+```
+
+#VISUAL DEPICTION OF DURATION BY COMMUNICATION TYPE
+```{r}
+
+text_duration_long %>% 
+  filter(communication_type != "Email") %>% 
+  ggplot(aes(x = reorder(factor(participant_id), -text_duration_total_min_avg), y = text_duration_total_min_avg, fill = factor(communication_type))) + 
+  geom_bar(stat = "identity") + 
+  theme_minimal() +
+  scale_fill_manual(values=cbPalette) +
+  labs(title = "Average Daily Minutes of Social Communication",
+       caption = "At least 10 days of text data",
+       x = "Participant", 
+       y = "Texting Duration (Average Minutes per Day)",
+       fill = "Communication Type") +
+  theme(legend.position = "bottom",
+        axis.text.x=element_blank())
+
+```
+
+#CREATING VARIABLES OF INTEREST
+```{r}
+#Creating person-level variables from text_features
+text_features_variables <- df_text_features %>% 
+  group_by(participant_id) %>% 
+  summarise(word_count_avg = mean(word_count), #AVERAGE WORD COUNT PER MESSAGE
+            char_count_avg = mean(char_count), #AVERAGE CHARACTER COUNT PER MESSAGE
+            sentiment_score_avg = mean(sentiment_score), #AVERAGE SENTIMENT SCORE PER MESSAGE
+            n_days = mean(n_days))   
